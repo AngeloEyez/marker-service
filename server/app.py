@@ -211,7 +211,7 @@ job_manager = JobManager()
 # ==============================================================================
 # 具備階段進度回報之客製化 Marker 轉換器
 # ==============================================================================
-def get_progress_converter_class(base_converter_cls, job_id: Optional[str]):
+def get_progress_converter_class(base_converter_cls, job_id: Optional[str], effective_prompt: Optional[str] = None):
     if not job_id:
         return base_converter_cls
 
@@ -249,7 +249,10 @@ def get_progress_converter_class(base_converter_cls, job_id: Optional[str]):
                 pname = getattr(processor, "__name__", processor.__class__.__name__)
                 pct = 50 + int(((idx + 1) / max(total_procs, 1)) * 38)
                 if "llm" in pname.lower():
-                    msg = f"正在透過遠端 vLLM (Qwen3.8-27B) 進行高精準度語意與格式校正 ({pname})..."
+                    if "pagecorrection" in pname.lower() and effective_prompt:
+                        msg = "正在透過遠端 vLLM (Qwen3.8-27B) 執行全頁區塊重整與浮水印雜訊去除 (LLMPageCorrectionProcessor)..."
+                    else:
+                        msg = f"正在透過遠端 vLLM (Qwen3.8-27B) 進行高精準度語意與格式校正 ({pname})..."
                     stg = "llm_refinement"
                 else:
                     msg = f"正在執行文件處理模組: {pname}..."
@@ -388,6 +391,8 @@ class CommonParams(BaseModel):
     paginate_output: Annotated[bool, Field(description="輸出內容是否分頁標註 (預設: True)", default=True)]
     strip_existing_ocr: Annotated[bool, Field(description="清除現有劣質 OCR 並由本機 Surya 重新 OCR", default=False)]
     disable_image_extraction: Annotated[bool, Field(description="不抽取內嵌圖片", default=False)]
+    remove_watermarks: Annotated[bool, Field(description="是否啟用 VLM/LLM 智慧浮水印與背景雜訊去除功能 (自動帶入專屬英文 Prompt 進行校正)", default=False)]
+    block_correction_prompt: Annotated[Optional[str], Field(description="自訂 block_correction_prompt 提示詞 (若為空且 remove_watermarks=True，則自動採用預設英文浮水印去除 Prompt)", default=None)]
 
 
 def _execute_conversion(params: CommonParams, job_id: Optional[str] = None):
@@ -403,6 +408,15 @@ def _execute_conversion(params: CommonParams, job_id: Optional[str] = None):
             message="正在載入配置參數與轉換核心...",
         )
 
+    # 決定有效 block_correction_prompt
+    effective_prompt = params.block_correction_prompt
+    if not effective_prompt and params.remove_watermarks:
+        effective_prompt = settings.DEFAULT_WATERMARK_REMOVAL_PROMPT
+    if not effective_prompt and settings.DEFAULT_BLOCK_CORRECTION_PROMPT:
+        effective_prompt = settings.DEFAULT_BLOCK_CORRECTION_PROMPT
+
+    use_llm_effective = params.use_llm or bool(effective_prompt)
+
     options = {
         "output_format": params.output_format,
         "mode": params.mode or settings.DEFAULT_MODE,
@@ -413,7 +427,10 @@ def _execute_conversion(params: CommonParams, job_id: Optional[str] = None):
         "page_range": params.page_range if params.page_range and params.page_range.strip() else None,
     }
 
-    if params.use_llm:
+    if effective_prompt:
+        options["block_correction_prompt"] = effective_prompt
+
+    if use_llm_effective:
         options["use_llm"] = True
         options["llm_service"] = "marker.services.openai.OpenAIService"
         os.environ["OPENAI_BASE_URL"] = settings.REMOTE_LLM_URL
@@ -429,13 +446,16 @@ def _execute_conversion(params: CommonParams, job_id: Optional[str] = None):
         config_dict["timeout"] = settings.LLM_TIMEOUT
         config_dict["max_retries"] = settings.LLM_MAX_RETRIES
 
-        if params.use_llm:
+        if effective_prompt:
+            config_dict["block_correction_prompt"] = effective_prompt
+
+        if use_llm_effective:
             config_dict["openai_base_url"] = settings.REMOTE_LLM_URL
             config_dict["openai_model"] = settings.REMOTE_LLM_MODEL
             config_dict["openai_api_key"] = settings.REMOTE_LLM_API_KEY
 
         converter_cls = config_parser.get_converter_cls()
-        wrapped_cls = get_progress_converter_class(converter_cls, job_id)
+        wrapped_cls = get_progress_converter_class(converter_cls, job_id, effective_prompt=effective_prompt)
 
         models = app_data.get("models")
         if models is None:
@@ -586,6 +606,8 @@ async def convert_uploaded_file(
     paginate_output: bool = Form(default=True, description="輸出內容是否分頁標註 (預設: True)"),
     strip_existing_ocr: bool = Form(default=False, description="是否移除劣質 OCR 並由本機重新辨識"),
     disable_image_extraction: bool = Form(default=False, description="是否停用圖片抽取"),
+    remove_watermarks: bool = Form(default=False, description="是否啟用 VLM/LLM 智慧浮水印與背景雜訊去除功能"),
+    block_correction_prompt: Optional[str] = Form(default=None, description="自訂 block_correction_prompt 提示詞 (若為空且 remove_watermarks=True，則自動採用預設英文浮水印去除 Prompt)"),
 ):
     job = job_manager.create_job(file.filename)
     upload_path = os.path.join(settings.UPLOAD_DIRECTORY, f"{job.job_id}_{file.filename}")
@@ -605,6 +627,8 @@ async def convert_uploaded_file(
             paginate_output=paginate_output,
             strip_existing_ocr=strip_existing_ocr,
             disable_image_extraction=disable_image_extraction,
+            remove_watermarks=remove_watermarks,
+            block_correction_prompt=block_correction_prompt,
         )
 
         # 排隊檢測
@@ -652,6 +676,8 @@ async def convert_uploaded_file_async(
     paginate_output: bool = Form(default=True, description="輸出內容是否分頁標註 (預設: True)"),
     strip_existing_ocr: bool = Form(default=False, description="是否移除劣質 OCR 並由本機重新辨識"),
     disable_image_extraction: bool = Form(default=False, description="是否停用圖片抽取"),
+    remove_watermarks: bool = Form(default=False, description="是否啟用 VLM/LLM 智慧浮水印與背景雜訊去除功能"),
+    block_correction_prompt: Optional[str] = Form(default=None, description="自訂 block_correction_prompt 提示詞 (若為空且 remove_watermarks=True，則自動採用預設英文浮水印去除 Prompt)"),
 ):
     """
     非同步上傳端點：立即回傳 job_id，具備並發限制與自動佇列排程保護。
@@ -674,6 +700,8 @@ async def convert_uploaded_file_async(
         paginate_output=paginate_output,
         strip_existing_ocr=strip_existing_ocr,
         disable_image_extraction=disable_image_extraction,
+        remove_watermarks=remove_watermarks,
+        block_correction_prompt=block_correction_prompt,
     )
 
     async def _scheduled_worker():
@@ -1085,6 +1113,16 @@ async def web_ui():
                         <span><i class="fa-solid fa-bars-staggered"></i> 輸出分頁標註 (paginate_output)</span>
                     </label>
                 </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="watermark-check">
+                        <span><i class="fa-solid fa-eraser" style="color:#d97706;"></i> 浮水印與背景雜訊去除 (remove_watermarks)</span>
+                    </label>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1; margin-top: 4px;">
+                    <label for="prompt-input"><i class="fa-solid fa-terminal"></i> 區塊校正提示詞 (block_correction_prompt, 選填)</label>
+                    <input type="text" id="prompt-input" class="form-control" placeholder="留空時若勾選去除浮水印將自動帶入最佳化英文 Prompt，亦可填寫自訂英文校正指令">
+                </div>
             </div>
 
             <button type="submit" class="btn-submit" id="btn-submit">
@@ -1353,6 +1391,9 @@ async def web_ui():
         formData.append('mode', document.getElementById('mode-select').value);
         formData.append('output_format', document.getElementById('format-select').value);
         formData.append('paginate_output', document.getElementById('paginate-check').checked);
+        formData.append('remove_watermarks', document.getElementById('watermark-check').checked);
+        const customPrompt = document.getElementById('prompt-input').value.trim();
+        if (customPrompt) formData.append('block_correction_prompt', customPrompt);
         const pr = document.getElementById('pagerange-input').value.trim();
         if (pr) formData.append('page_range', pr);
 

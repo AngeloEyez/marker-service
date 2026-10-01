@@ -61,6 +61,8 @@ Swagger 介面預設值已根據生產環境最佳實踐調整如下：
 | `page_range` | string | **`null` (留空)** | **預設為空**，代表完整處理上傳之整份文件。如需自訂可填入如 `0,2-5`。 |
 | `paginate_output`| boolean | **`true`** | **預設啟用** 分頁標記，在 Markdown 中自動生成 `{頁碼}----...` 分隔標籤，便於 RAG 切塊與引用。 |
 | `output_format` | string | **`"markdown"`** | 預設輸出優化後的 Markdown 文字。 |
+| `remove_watermarks` | boolean | **`false`** | **浮水印與背景雜訊去除**：自動啟用遠端多模態 LLM (`LLMPageCorrectionProcessor`) 並載入專屬英文清理 Prompt，剔除背景浮水印、機密宣告、email 水印與頁尾雜訊。 |
+| `block_correction_prompt` | string | **`null` (留空)** | **自訂區塊校正提示詞**：傳遞給 Marker 的 `--block_correction_prompt`。留空且勾選 `remove_watermarks` 時，自動載入最佳化英文清理提示詞；亦可自訂輸入英文 Prompt 進行特定格式或結構調整。 |
 
 ---
 
@@ -301,3 +303,32 @@ curl -X POST "http://127.0.0.1:8090/marker/upload" \
   -F "file=@/path/to/report.pdf" \
   -o output.json
 ```
+
+### 6.4 智慧去除浮水印與雜訊 (Watermark Removal & Custom Prompt)
+
+本服務支援藉由遠端多模態 LLM (`LLMPageCorrectionProcessor`) 自動分析全頁面圖像與區塊 JSON，識別並剔除干擾性浮水印與雜訊：
+
+#### 1. 使用預設最佳化英文清理提示詞（一鍵開啟）
+只需在請求中加入 `-F "remove_watermarks=true"`，系統會自動載入最佳化英文清理 Prompt 並強制啟動 LLM 校正：
+```bash
+curl -X POST "http://127.0.0.1:8090/marker/upload/async" \
+  -F "file=@/path/to/watermarked.pdf" \
+  -F "remove_watermarks=true"
+```
+
+#### 2. 自訂校正提示詞 (`block_correction_prompt`)
+若有特定的版面清洗要求，可自訂傳遞英文 Prompt：
+```bash
+curl -X POST "http://127.0.0.1:8090/marker/upload/async" \
+  -F "file=@/path/to/watermarked.pdf" \
+  -F "block_correction_prompt=You are a professional document cleanup specialist. Remove all background watermarks, company branding, confidentiality notices, and email addresses. Preserve genuine content."
+```
+
+#### 3. Marker 官方 CLI 調用對應方式
+在終端機直接使用 `marker_single` 時，可直接使用以下參數：
+```bash
+marker_single /path/to/doc.pdf \
+  --use_llm \
+  --block_correction_prompt "You are a professional document cleanup and sanitization specialist. Carefully analyze the page image and text blocks. Identify and eliminate all irrelevant background noise, diagonal or faded watermarks (such as 'CONFIDENTIAL', 'DRAFT', 'SAMPLE', or internal stamps), organization branding labels, confidentiality notices, tracking email addresses, and repetitive header/footer noise unrelated to the main content. For blocks consisting solely of watermarks, boilerplate disclaimers, or noise, clear their content by setting their 'html' field to an empty string (\"\"). For blocks where noise is interspersed with valid text, strip out the noise while preserving the legitimate content. Strictly preserve all genuine body paragraphs, section headers, code blocks, and table contents intact. Only return the blocks that have been modified."
+```
+

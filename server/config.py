@@ -23,6 +23,22 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
     UPLOAD_DIRECTORY: str = os.getenv("UPLOAD_DIRECTORY", "/tmp/marker_uploads")
 
+    # VLM / LLM Block Correction & Watermark Removal
+    DEFAULT_WATERMARK_REMOVAL_PROMPT: str = os.getenv(
+        "DEFAULT_WATERMARK_REMOVAL_PROMPT",
+        (
+            "You are a professional document cleanup and sanitization specialist. "
+            "Carefully analyze the page image and text blocks. Identify and eliminate all irrelevant background noise, "
+            "diagonal or faded watermarks (such as 'CONFIDENTIAL', 'DRAFT', 'SAMPLE', or internal stamps), organization branding labels, "
+            "confidentiality notices, tracking email addresses, and repetitive header/footer noise unrelated to the main content. "
+            "For blocks consisting solely of watermarks, boilerplate disclaimers, or noise, clear their content by setting their 'html' field to an empty string (\"\"). "
+            "For blocks where noise is interspersed with valid text, strip out the noise while preserving the legitimate content. "
+            "Strictly preserve all genuine body paragraphs, section headers, code blocks, and table contents intact. "
+            "Only return the blocks that have been modified."
+        ),
+    )
+    DEFAULT_BLOCK_CORRECTION_PROMPT: str = os.getenv("DEFAULT_BLOCK_CORRECTION_PROMPT", "")
+
     # 排程與資源保護機制 (Queue & Cleanup Settings)
     MAX_CONCURRENT_CONVERSIONS: int = int(os.getenv("MAX_CONCURRENT_CONVERSIONS", "1"))
     MAX_COMPLETED_JOBS_HISTORY: int = int(os.getenv("MAX_COMPLETED_JOBS_HISTORY", "500"))
