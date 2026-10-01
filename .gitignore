@@ -1,0 +1,30 @@
+# Environment variables and secrets
+.env
+
+# Large model binaries and HuggingFace/Torch caches
+models/
+cache/
+
+# Upload directory (only track .gitkeep if needed)
+uploads/*
+!uploads/.gitkeep
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and outputs
+*.log
+*.zip
+output.json
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store

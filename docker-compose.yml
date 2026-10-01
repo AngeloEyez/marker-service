@@ -1,0 +1,93 @@
+services:
+  # ============================================================================
+  # 1. llama-server (CUDA GPU 加速視覺推論引擎，負責 Surya GGUF 模型)
+  # 綁定 GPU 0 (RTX 3050 OEM, Ampere 架構)
+  # ============================================================================
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: marker-llama-server
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        rm -f /etc/ld.so.conf.d/*compat* && ldconfig &&
+        exec /app/llama-server
+        --model /models/surya-2.gguf
+        --mmproj /models/surya-2-mmproj.gguf
+        -ngl 99
+        --host 0.0.0.0
+        --port 8001
+        --parallel 8
+        --ctx-size 16384
+        --alias datalab-to/surya-ocr-2
+        --jinja
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./models:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://127.0.0.1:8001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ============================================================================
+  # 2. Marker PDF 微服務主程式 (FastAPI + Marker-pdf[full])
+  # 支援使用本機 GPU 與遠端 Qwen3.8-27B vLLM (--use_llm)
+  # ============================================================================
+  marker-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marker-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8090
+      - SURYA_INFERENCE_BACKEND=llamacpp
+      - SURYA_INFERENCE_URL=http://llama-server:8001/v1
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://192.168.1.5:8000/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-Qwen3.8-27B}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-none}
+      - HF_HOME=/data/cache/huggingface
+      - TORCH_HOME=/data/cache/torch
+      - DATALAB_CACHE_DIR=/data/cache/datalab
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./server:/app/server
+      - ./cache/huggingface:/data/cache/huggingface
+      - ./cache/torch:/data/cache/torch
+      - ./cache/datalab:/data/cache/datalab
+      - ./uploads:/tmp/marker_uploads
+      - ./models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      llama-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://127.0.0.1:8090/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  default:
+    name: marker-network

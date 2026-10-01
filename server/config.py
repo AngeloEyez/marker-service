@@ -1,0 +1,37 @@
+import os
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    HOST: str = os.getenv("HOST", "0.0.0.0")
+    PORT: int = int(os.getenv("PORT", "8090"))
+    
+    # Surya / Marker Local Perception Configuration
+    SURYA_INFERENCE_BACKEND: str = os.getenv("SURYA_INFERENCE_BACKEND", "llamacpp")
+    SURYA_INFERENCE_URL: str = os.getenv("SURYA_INFERENCE_URL", "")
+    LLAMA_CPP_NGL: int = int(os.getenv("LLAMA_CPP_NGL", "99"))
+    
+    # Remote vLLM / OpenAI Service Configuration for --use_llm
+    REMOTE_LLM_URL: str = os.getenv("OPENAI_BASE_URL", "http://192.168.1.5:8000/v1")
+    REMOTE_LLM_MODEL: str = os.getenv("OPENAI_MODEL", "Qwen3.8-27B")
+    REMOTE_LLM_API_KEY: str = os.getenv("OPENAI_API_KEY", "none")
+    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "180"))
+    LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
+    
+    # Conversion Defaults
+    DEFAULT_MODE: str = os.getenv("DEFAULT_MODE", "balanced")
+    DEFAULT_OUTPUT_FORMAT: str = os.getenv("DEFAULT_OUTPUT_FORMAT", "markdown")
+    MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
+    UPLOAD_DIRECTORY: str = os.getenv("UPLOAD_DIRECTORY", "/tmp/marker_uploads")
+
+    # 排程與資源保護機制 (Queue & Cleanup Settings)
+    MAX_CONCURRENT_CONVERSIONS: int = int(os.getenv("MAX_CONCURRENT_CONVERSIONS", "1"))
+    MAX_COMPLETED_JOBS_HISTORY: int = int(os.getenv("MAX_COMPLETED_JOBS_HISTORY", "500"))
+    JOB_RETENTION_SECONDS: int = int(os.getenv("JOB_RETENTION_SECONDS", "86400"))      # 已完成任務於記憶體保留 24 小時 (1天)
+    FILE_RETENTION_SECONDS: int = int(os.getenv("FILE_RETENTION_SECONDS", "86400"))     # 孤立殘留檔案保留 24 小時 (1天)
+    CLEANUP_INTERVAL_SECONDS: int = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "86400"))  # 背景自動巡檢間隔 24 小時 (1天一次)
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+settings = Settings()

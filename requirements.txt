@@ -1,0 +1,17 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+# PyTorch with CUDA 12.6 support (compatible with host NVIDIA driver 550.x and Marker >=2.7.0 requirement)
+torch>=2.7.0,<3.0.0
+torchvision
+
+# Marker PDF Core & Full format support (EPUB, DOCX, PPTX, XLSX)
+marker-pdf[full]>=2.0.0
+
+# FastAPI Microservice Dependencies
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+requests>=2.31.0
+pydantic-settings>=2.0.0
+huggingface-hub>=0.23.0
+filelock>=3.14.0
