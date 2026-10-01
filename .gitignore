@@ -1,6 +1,3 @@
-# Environment variables and secrets
-.env
-
 # Large model binaries and HuggingFace/Torch caches
 models/
 cache/
