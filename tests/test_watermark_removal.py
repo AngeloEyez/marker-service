@@ -75,16 +75,22 @@ def test_openapi_schema():
     props = schema["components"]["schemas"]["CommonParams"]["properties"]
     assert "remove_watermarks" in props, "remove_watermarks not in CommonParams"
     assert "block_correction_prompt" in props, "block_correction_prompt not in CommonParams"
-    print("  -> CommonParams contains remove_watermarks and block_correction_prompt")
+    assert "reasoning_effort" in props, "reasoning_effort not in CommonParams"
+    assert "enable_thinking" in props, "enable_thinking not in CommonParams"
+    print("  -> CommonParams contains remove_watermarks, block_correction_prompt, reasoning_effort, enable_thinking")
 
     # Check upload endpoints
     upload_body = schema["components"]["schemas"]["Body_convert_uploaded_file_marker_upload_post"]["properties"]
     assert "remove_watermarks" in upload_body, "remove_watermarks not in upload body"
     assert "block_correction_prompt" in upload_body, "block_correction_prompt not in upload body"
+    assert "reasoning_effort" in upload_body, "reasoning_effort not in upload body"
+    assert "enable_thinking" in upload_body, "enable_thinking not in upload body"
 
     async_body = schema["components"]["schemas"]["Body_convert_uploaded_file_async_marker_upload_async_post"]["properties"]
     assert "remove_watermarks" in async_body, "remove_watermarks not in async upload body"
     assert "block_correction_prompt" in async_body, "block_correction_prompt not in async upload body"
+    assert "reasoning_effort" in async_body, "reasoning_effort not in async upload body"
+    assert "enable_thinking" in async_body, "enable_thinking not in async upload body"
     print("  -> Upload & Async Upload schemas contain parameters")
     print("-> OpenAPI Schema Verification PASSED")
 

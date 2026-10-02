@@ -393,6 +393,8 @@ class CommonParams(BaseModel):
     disable_image_extraction: Annotated[bool, Field(description="不抽取內嵌圖片", default=False)]
     remove_watermarks: Annotated[bool, Field(description="是否啟用 VLM/LLM 智慧浮水印與背景雜訊去除功能 (自動帶入專屬英文 Prompt 進行校正)", default=False)]
     block_correction_prompt: Annotated[Optional[str], Field(description="自訂 block_correction_prompt 提示詞 (若為空且 remove_watermarks=True，則自動採用預設英文浮水印去除 Prompt)", default=None)]
+    reasoning_effort: Annotated[Optional[str], Field(description="LLM 思考推理強度等級 ('low', 'medium', 'high', 'none')，若未指定則使用環境變數 LLM_REASONING_EFFORT", default=None)]
+    enable_thinking: Annotated[Optional[bool], Field(description="是否啟用 LLM 思維鏈/思考過程 (若未指定則使用環境變數 LLM_ENABLE_THINKING)", default=None)]
 
 
 def _execute_conversion(params: CommonParams, job_id: Optional[str] = None):
@@ -432,7 +434,7 @@ def _execute_conversion(params: CommonParams, job_id: Optional[str] = None):
 
     if use_llm_effective:
         options["use_llm"] = True
-        options["llm_service"] = "marker.services.openai.OpenAIService"
+        options["llm_service"] = "server.services.OptimizedOpenAIService"
         os.environ["OPENAI_BASE_URL"] = settings.REMOTE_LLM_URL
         os.environ["OPENAI_MODEL"] = settings.REMOTE_LLM_MODEL
         os.environ["OPENAI_API_KEY"] = settings.REMOTE_LLM_API_KEY
@@ -453,6 +455,12 @@ def _execute_conversion(params: CommonParams, job_id: Optional[str] = None):
             config_dict["openai_base_url"] = settings.REMOTE_LLM_URL
             config_dict["openai_model"] = settings.REMOTE_LLM_MODEL
             config_dict["openai_api_key"] = settings.REMOTE_LLM_API_KEY
+            config_dict["reasoning_effort"] = (
+                params.reasoning_effort if params.reasoning_effort is not None else settings.LLM_REASONING_EFFORT
+            )
+            config_dict["enable_thinking"] = (
+                params.enable_thinking if params.enable_thinking is not None else settings.LLM_ENABLE_THINKING
+            )
 
         converter_cls = config_parser.get_converter_cls()
         wrapped_cls = get_progress_converter_class(converter_cls, job_id, effective_prompt=effective_prompt)
@@ -608,6 +616,8 @@ async def convert_uploaded_file(
     disable_image_extraction: bool = Form(default=False, description="是否停用圖片抽取"),
     remove_watermarks: bool = Form(default=False, description="是否啟用 VLM/LLM 智慧浮水印與背景雜訊去除功能"),
     block_correction_prompt: Optional[str] = Form(default=None, description="自訂 block_correction_prompt 提示詞 (若為空且 remove_watermarks=True，則自動採用預設英文浮水印去除 Prompt)"),
+    reasoning_effort: Optional[str] = Form(default=None, description="LLM 思考等級 ('low', 'medium', 'high', 'none')，若未指定則使用環境變數設定"),
+    enable_thinking: Optional[bool] = Form(default=None, description="是否啟用 LLM 思維鏈/思考過程 (預設: False，避免過長思考導致延遲)"),
 ):
     job = job_manager.create_job(file.filename)
     upload_path = os.path.join(settings.UPLOAD_DIRECTORY, f"{job.job_id}_{file.filename}")
@@ -629,6 +639,8 @@ async def convert_uploaded_file(
             disable_image_extraction=disable_image_extraction,
             remove_watermarks=remove_watermarks,
             block_correction_prompt=block_correction_prompt,
+            reasoning_effort=reasoning_effort,
+            enable_thinking=enable_thinking,
         )
 
         # 排隊檢測
@@ -678,6 +690,8 @@ async def convert_uploaded_file_async(
     disable_image_extraction: bool = Form(default=False, description="是否停用圖片抽取"),
     remove_watermarks: bool = Form(default=False, description="是否啟用 VLM/LLM 智慧浮水印與背景雜訊去除功能"),
     block_correction_prompt: Optional[str] = Form(default=None, description="自訂 block_correction_prompt 提示詞 (若為空且 remove_watermarks=True，則自動採用預設英文浮水印去除 Prompt)"),
+    reasoning_effort: Optional[str] = Form(default=None, description="LLM 思考等級 ('low', 'medium', 'high', 'none')，若未指定則使用環境變數設定"),
+    enable_thinking: Optional[bool] = Form(default=None, description="是否啟用 LLM 思維鏈/思考過程 (預設: False，避免過長思考導致延遲)"),
 ):
     """
     非同步上傳端點：立即回傳 job_id，具備並發限制與自動佇列排程保護。
@@ -702,6 +716,8 @@ async def convert_uploaded_file_async(
         disable_image_extraction=disable_image_extraction,
         remove_watermarks=remove_watermarks,
         block_correction_prompt=block_correction_prompt,
+        reasoning_effort=reasoning_effort,
+        enable_thinking=enable_thinking,
     )
 
     async def _scheduled_worker():
@@ -1119,6 +1135,15 @@ async def web_ui():
                         <span><i class="fa-solid fa-eraser" style="color:#d97706;"></i> 浮水印與背景雜訊去除 (remove_watermarks)</span>
                     </label>
                 </div>
+                <div class="form-group">
+                    <label for="reasoning-select"><i class="fa-solid fa-brain" style="color:#6366f1;"></i> LLM 思考等級 (reasoning_effort)</label>
+                    <select id="reasoning-select" class="form-control">
+                        <option value="low" selected>low (建議，輕度思考/極速處理)</option>
+                        <option value="none">none (完全關閉思考，適用純文字格式清理)</option>
+                        <option value="medium">medium (中度思考，適用複雜排版)</option>
+                        <option value="high">high (深度思考，最慢)</option>
+                    </select>
+                </div>
                 <div class="form-group" style="grid-column: 1 / -1; margin-top: 4px;">
                     <label for="prompt-input"><i class="fa-solid fa-terminal"></i> 區塊校正提示詞 (block_correction_prompt, 選填)</label>
                     <input type="text" id="prompt-input" class="form-control" placeholder="留空時若勾選去除浮水印將自動帶入最佳化英文 Prompt，亦可填寫自訂英文校正指令">
@@ -1392,6 +1417,8 @@ async def web_ui():
         formData.append('output_format', document.getElementById('format-select').value);
         formData.append('paginate_output', document.getElementById('paginate-check').checked);
         formData.append('remove_watermarks', document.getElementById('watermark-check').checked);
+        const reasoningEffort = document.getElementById('reasoning-select').value;
+        if (reasoningEffort) formData.append('reasoning_effort', reasoningEffort);
         const customPrompt = document.getElementById('prompt-input').value.trim();
         if (customPrompt) formData.append('block_correction_prompt', customPrompt);
         const pr = document.getElementById('pagerange-input').value.trim();

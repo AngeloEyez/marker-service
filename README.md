@@ -9,8 +9,10 @@
 - **雙 GPU 異質協同運算 (Dual GPU Partitioning)**：
   - **GPU 0 (RTX 3050 OEM 8GB)**：以 CUDA 加速之 `llama-server` 專屬運行 `surya-2.gguf` 與 `surya-2-mmproj.gguf`，負責全頁面高解析度視覺 OCR 與數學公式標記。
   - **GPU 1 (T1000 8GB)**：負責 Marker 本地 PyTorch 輔助分析（`rf-detr` 版面偵測器、閱讀順序排序模型）。
-- **遠端 LLM 語意精修 (Remote vLLM Integration)**：
+- **遠端 LLM 語意精修與浮水印去除 (Remote vLLM Integration & Watermark Sanitization)**：
   - 支援 `--use_llm` 對接區域網路 vLLM 伺服器 (`Qwen3.8-27B`)，自動重組跨頁複雜表格、校正代數公式與目錄結構。
+  - **智慧去除浮水印與干擾雜訊**：支援 `remove_watermarks` 與客製化 `block_correction_prompt`，自動識別並剔除機密背景印章、對角線浮水印與非本文雜訊。
+  - **推理思考等級調控 (Reasoning Effort & Thinking Control)**：自訂可插拔 `OptimizedOpenAIService`，支援 `LLM_REASONING_EFFORT` (`low`/`none`/`medium`) 與 `LLM_ENABLE_THINKING`，抑制冗長思維鏈，避免超時並使校正速度提升數倍。
 - **現代化單頁 Web 儀表板 (`http://<HOST>:8090/`)**：
   - 拖曳上傳、即時動態進度條、階段徽章（排隊中、版面與 OCR、段落結構、LLM 校正、渲染完成）。
   - **三合一成果檢視**：原始 Markdown、`marked.js` 圖文內嵌即時預覽、擷取圖片相簿（含點擊放大燈箱與單圖下載）。

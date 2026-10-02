@@ -63,6 +63,8 @@ Swagger 介面預設值已根據生產環境最佳實踐調整如下：
 | `output_format` | string | **`"markdown"`** | 預設輸出優化後的 Markdown 文字。 |
 | `remove_watermarks` | boolean | **`false`** | **浮水印與背景雜訊去除**：自動啟用遠端多模態 LLM (`LLMPageCorrectionProcessor`) 並載入專屬英文清理 Prompt，剔除背景浮水印、機密宣告、email 水印與頁尾雜訊。 |
 | `block_correction_prompt` | string | **`null` (留空)** | **自訂區塊校正提示詞**：傳遞給 Marker 的 `--block_correction_prompt`。留空且勾選 `remove_watermarks` 時，自動載入最佳化英文清理提示詞；亦可自訂輸入英文 Prompt 進行特定格式或結構調整。 |
+| `reasoning_effort` | string | **`"low"`** | **LLM 思考等級**：可選 `'low'`, `'none'`, `'medium'`, `'high'`。預設 `'low'` 壓制冗長思維鏈，避免超時並大幅提升轉換速度。 |
+| `enable_thinking` | boolean | **`false`** | **思維鏈開關**：控制是否允許推理模型產生思維鏈。預設 `false` 停用思考以達到最高處理效率。 |
 
 ---
 
