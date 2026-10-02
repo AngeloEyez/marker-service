@@ -1,3 +1,19 @@
+"""
+================================================================================
+模組名稱: server.services
+用途說明: 自訂可插拔推論服務層 (OpenAI / vLLM 相容協議)
+技術規格:
+  - 核心類別: OptimizedOpenAIService (繼承自 Marker 原生 OpenAIService)
+  - 核心特色:
+    - 思考抑制控制 (reasoning_effort): 支援 'low', 'none', 'medium', 'high' 等級
+    - 思維鏈開關 (enable_thinking): 停用時主動注入 chat_template_kwargs: {'thinking': False}
+    - 異常自動平滑降級 (BadRequestError Fallback): 遇到老舊或不支援 thinking 參數之後端自動剔除重試
+    - 零侵入架構: 透過 Marker 的 ConfigParser / resolve_dependencies 動態注入，無需更動 Marker 核心
+維護指南:
+  - AI Agent 修改時請確保 process_images 與 format_image_for_llm 相容 Marker schema 規格。
+================================================================================
+"""
+
 import json
 import time
 from typing import List, Optional
@@ -10,6 +26,7 @@ from openai import APITimeoutError, RateLimitError, BadRequestError
 from marker.logger import get_logger
 from marker.schema.blocks import Block
 from marker.services.openai import OpenAIService
+from server.jobs import TaskCancelledException, job_manager
 
 logger = get_logger()
 
@@ -22,9 +39,12 @@ class OptimizedOpenAIService(OpenAIService):
     2. enable_thinking 控制 (支援 vLLM/Qwen 等模型的 chat_template_kwargs: {'thinking': False})。
     3. 自動降級保護 (Fallback)：若後端不支援 reasoning_effort 或 extra_body 參數，自動剔除並平滑重試。
     4. 完全相容 Marker 的依賴注入與設定機制 (ConfigParser / assign_config)。
+    5. 協同即時中斷：在每次發送 VLM 請求前/中均即時檢驗任務取消訊號，拋出 TaskCancelledException
+       以徹底穿透所有 Marker 內建處理器迴圈，杜絕背景幽靈推論。
     """
     reasoning_effort: str = "low"
     enable_thinking: bool = False
+    current_job_id: Optional[str] = None
 
     def __call__(
         self,
@@ -35,6 +55,11 @@ class OptimizedOpenAIService(OpenAIService):
         max_retries: int | None = None,
         timeout: int | None = None,
     ):
+        current_job = getattr(self, "current_job_id", None) or job_manager.active_job_id
+        if current_job and job_manager.is_cancelled(current_job):
+            logger.warning(f"[OptimizedOpenAIService] 任務 [{current_job}] 已被使用者手動取消，停止後續 VLM 請求！")
+            raise TaskCancelledException(f"任務 [{current_job}] 已被使用者手動取消，停止後續 VLM 請求")
+
         if max_retries is None:
             max_retries = self.max_retries
 
@@ -42,6 +67,8 @@ class OptimizedOpenAIService(OpenAIService):
             timeout = self.timeout
 
         client = self.get_client()
+        if current_job:
+            job_manager.register_client(current_job, client)
         image_data = self.format_image_for_llm(image)
 
         messages = [
@@ -76,47 +103,63 @@ class OptimizedOpenAIService(OpenAIService):
         if not thinking_allowed:
             parse_kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": False}}
 
-        total_tries = max_retries + 1
-        for tries in range(1, total_tries + 1):
-            try:
-                response = client.chat.completions.parse(**parse_kwargs)
-                response_text = response.choices[0].message.content
-                total_tokens = response.usage.total_tokens if response.usage else 0
-                if block:
-                    block.update_metadata(
-                        llm_tokens_used=total_tokens, llm_request_count=1
-                    )
-                return json.loads(response_text)
-            except BadRequestError as e:
-                # 若後端 server 不支援 reasoning_effort 或 extra_body，降級重試
-                err_msg = str(e).lower()
-                modified = False
-                if "reasoning_effort" in parse_kwargs and ("reasoning_effort" in err_msg or "extra_body" in err_msg or "unrecognized" in err_msg):
-                    logger.warning(f"後端不支援 reasoning_effort，自動移除降級: {e}")
-                    del parse_kwargs["reasoning_effort"]
-                    modified = True
-                if "extra_body" in parse_kwargs and ("chat_template_kwargs" in err_msg or "extra_body" in err_msg or "unrecognized" in err_msg):
-                    logger.warning(f"後端不支援 extra_body/thinking 控制，自動移除降級: {e}")
-                    del parse_kwargs["extra_body"]
-                    modified = True
-                if modified:
-                    continue
-                logger.error(f"OpenAI BadRequestError failed: {e}")
-                break
-            except (APITimeoutError, RateLimitError) as e:
-                if tries == total_tries:
-                    logger.error(
-                        f"Rate limit / timeout error: {e}. Max retries reached. Giving up. (Attempt {tries}/{total_tries})",
-                    )
-                    break
-                else:
-                    wait_time = tries * self.retry_wait_time
-                    logger.warning(
-                        f"Rate limit / timeout error: {e}. Retrying in {wait_time} seconds... (Attempt {tries}/{total_tries})",
-                    )
-                    time.sleep(wait_time)
-            except Exception as e:
-                logger.error(f"OpenAI inference failed: {e}")
-                break
+        try:
+            total_tries = max_retries + 1
+            for tries in range(1, total_tries + 1):
+                if current_job and job_manager.is_cancelled(current_job):
+                    raise TaskCancelledException(f"任務 [{current_job}] 已被使用者手動取消，停止後續 VLM 重試")
 
-        return {}
+                try:
+                    response = client.chat.completions.parse(**parse_kwargs)
+                    response_text = response.choices[0].message.content
+                    total_tokens = response.usage.total_tokens if response.usage else 0
+                    if block:
+                        block.update_metadata(
+                            llm_tokens_used=total_tokens, llm_request_count=1
+                        )
+                    return json.loads(response_text)
+                except TaskCancelledException:
+                    raise
+                except BadRequestError as e:
+                    if current_job and job_manager.is_cancelled(current_job):
+                        raise TaskCancelledException(f"任務 [{current_job}] 已被使用者手動取消")
+                    # 若後端 server 不支援 reasoning_effort 或 extra_body，降級重試
+                    err_msg = str(e).lower()
+                    modified = False
+                    if "reasoning_effort" in parse_kwargs and ("reasoning_effort" in err_msg or "extra_body" in err_msg or "unrecognized" in err_msg):
+                        logger.warning(f"後端不支援 reasoning_effort，自動移除降級: {e}")
+                        del parse_kwargs["reasoning_effort"]
+                        modified = True
+                    if "extra_body" in parse_kwargs and ("chat_template_kwargs" in err_msg or "extra_body" in err_msg or "unrecognized" in err_msg):
+                        logger.warning(f"後端不支援 extra_body/thinking 控制，自動移除降級: {e}")
+                        del parse_kwargs["extra_body"]
+                        modified = True
+                    if modified:
+                        continue
+                    logger.error(f"OpenAI BadRequestError failed: {e}")
+                    break
+                except (APITimeoutError, RateLimitError) as e:
+                    if current_job and job_manager.is_cancelled(current_job):
+                        raise TaskCancelledException(f"任務 [{current_job}] 已被使用者手動取消")
+                    if tries == total_tries:
+                        logger.error(
+                            f"Rate limit / timeout error: {e}. Max retries reached. Giving up. (Attempt {tries}/{total_tries})",
+                        )
+                        break
+                    else:
+                        wait_time = tries * self.retry_wait_time
+                        logger.warning(
+                            f"Rate limit / timeout error: {e}. Retrying in {wait_time} seconds... (Attempt {tries}/{total_tries})",
+                        )
+                        time.sleep(wait_time)
+                except Exception as e:
+                    if current_job and job_manager.is_cancelled(current_job):
+                        logger.warning(f"[OptimizedOpenAIService] 任務 [{current_job}] 請求過程中被取消: {e}")
+                        raise TaskCancelledException(f"任務 [{current_job}] 已被使用者手動取消")
+                    logger.error(f"OpenAI inference failed: {e}")
+                    break
+
+            return {}
+        finally:
+            if current_job:
+                job_manager.unregister_client(current_job, client)

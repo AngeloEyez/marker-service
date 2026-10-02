@@ -1,5 +1,25 @@
+"""
+================================================================================
+模組名稱: server.config
+用途說明: 全域設定檔與環境變數動態綁定模組
+技術規格:
+  - 核心類別: Settings (基於 pydantic_settings.BaseSettings)
+  - 支援設定:
+    - 網路監聽: HOST (0.0.0.0), PORT (8090)
+    - Surya 本地推論: SURYA_INFERENCE_BACKEND, SURYA_INFERENCE_URL, LLAMA_CPP_NGL
+    - 遠端 vLLM / OpenAI: REMOTE_LLM_URL, REMOTE_LLM_MODEL, REMOTE_LLM_API_KEY, LLM_TIMEOUT, LLM_MAX_RETRIES
+    - 推理思考抑制: LLM_REASONING_EFFORT ('low'), LLM_ENABLE_THINKING (False)
+    - 轉換預設: DEFAULT_MODE ('balanced'), DEFAULT_OUTPUT_FORMAT ('markdown'), MAX_UPLOAD_SIZE_MB
+    - 提示詞工程: DEFAULT_WATERMARK_REMOVAL_PROMPT, DEFAULT_BLOCK_CORRECTION_PROMPT
+    - 排程與清理政策: MAX_CONCURRENT_CONVERSIONS (1), JOB_RETENTION_SECONDS (86400), FILE_RETENTION_SECONDS (86400)
+維護指南:
+  - AI Agent 或維護者新增環境變數時，請同時同步至 .env 與 .env.example。
+================================================================================
+"""
+
 import os
 from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     HOST: str = os.getenv("HOST", "0.0.0.0")

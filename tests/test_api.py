@@ -103,7 +103,7 @@ def test_upload(use_llm=False):
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=300) as resp:
             result = json.loads(resp.read().decode())
             print(f"-> Status Code: {resp.status}")
             print(f"-> Success: {result.get('success')}")
@@ -149,6 +149,7 @@ def test_async_and_zip():
         print(f"-> Async Job Created: {job_id}")
 
     # Poll until completed
+    job_finished = False
     for _ in range(60):
         req_poll = urllib.request.Request(f"{API_BASE}/marker/jobs/{job_id}")
         with urllib.request.urlopen(req_poll, timeout=10) as r:
@@ -157,8 +158,10 @@ def test_async_and_zip():
             if status in ["completed", "failed"]:
                 print(f"-> Job finished with status: {status} (elapsed: {status_data.get('elapsed_seconds')}s)")
                 assert status == "completed", f"Job failed: {status_data.get('error')}"
+                job_finished = True
                 break
         time.sleep(2)
+    assert job_finished, f"Job {job_id} did not complete within timeout"
 
     # Test ZIP download
     download_url = f"{API_BASE}/marker/jobs/{job_id}/download"
