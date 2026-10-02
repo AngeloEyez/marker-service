@@ -241,7 +241,7 @@
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" id="paginate-check" checked>
+                        <input type="checkbox" id="paginate-check">
                         <span><i class="fa-solid fa-bars-staggered"></i> 輸出分頁標註 (paginate_output)</span>
                     </label>
                 </div>
@@ -254,8 +254,8 @@
                 <div class="form-group">
                     <label for="reasoning-select"><i class="fa-solid fa-brain" style="color:#6366f1;"></i> LLM 思考等級 (reasoning_effort)</label>
                     <select id="reasoning-select" class="form-control">
-                        <option value="low" selected>low (建議，輕度思考/極速處理)</option>
-                        <option value="none">none (完全關閉思考，適用純文字格式清理)</option>
+                        <option value="none" selected>none (預設關閉思考，極速推薦)</option>
+                        <option value="low">low (輕度思考/兼顧速度與格式)</option>
                         <option value="medium">medium (中度思考，適用複雜排版)</option>
                         <option value="high">high (深度思考，最慢)</option>
                     </select>

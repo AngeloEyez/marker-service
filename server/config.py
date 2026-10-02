@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     REMOTE_LLM_API_KEY: str = os.getenv("OPENAI_API_KEY", "none")
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "180"))
     LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
-    LLM_REASONING_EFFORT: str = os.getenv("LLM_REASONING_EFFORT", "low")
+    LLM_REASONING_EFFORT: str = os.getenv("LLM_REASONING_EFFORT", "none")
     LLM_ENABLE_THINKING: bool = os.getenv("LLM_ENABLE_THINKING", "false").lower() in ("true", "1", "yes")
     
     # Conversion Defaults
