@@ -92,15 +92,12 @@ class OptimizedOpenAIService(OpenAIService):
             "response_format": response_schema,
         }
 
-        # 思考等級控制 (reasoning_effort: low, medium, high)
+        # 思考等級控制 (reasoning_effort: low, medium, high, none)
         effort = (str(self.reasoning_effort) if self.reasoning_effort is not None else "").strip().lower()
-        if effort and effort not in ("default", "none", "off", "false"):
-            parse_kwargs["reasoning_effort"] = effort
+        thinking_allowed = bool(self.enable_thinking) and effort not in ("none", "off", "false", "0")
 
-        # 思考開關 (thinking template kwargs)
-        # 若明確關閉思考或設定為 none/off，同時注入 Qwen 專屬的 enable_thinking: False 與通用 thinking: False
-        thinking_allowed = bool(self.enable_thinking) and effort not in ("none", "off", "false")
         if not thinking_allowed:
+            # 關閉思考：不傳遞 reasoning_effort (避免 Qwen 報 400 錯誤)，注入 enable_thinking: False
             parse_kwargs["extra_body"] = {
                 "chat_template_kwargs": {
                     "thinking": False,
@@ -108,10 +105,18 @@ class OptimizedOpenAIService(OpenAIService):
                 }
             }
         else:
+            # 開啟思考 (low, medium, high):
+            # 1. 通用 OpenAI 頂層僅支援 low, medium (Qwen Jinja 嚴格不接受頂層 'high'，其內部要求 'xhigh')
+            if effort in ("low", "medium"):
+                parse_kwargs["reasoning_effort"] = effort
+
+            # 2. Qwen 系列模型 Jinja template 要求 'low', 'medium', 'xhigh'
+            qwen_effort = "xhigh" if effort in ("high", "xhigh", "max") else (effort if effort in ("low", "medium") else "xhigh")
             parse_kwargs["extra_body"] = {
                 "chat_template_kwargs": {
                     "thinking": True,
                     "enable_thinking": True,
+                    "reasoning_effort": qwen_effort,
                 }
             }
 
