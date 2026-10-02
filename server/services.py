@@ -6,7 +6,7 @@
   - 核心類別: OptimizedOpenAIService (繼承自 Marker 原生 OpenAIService)
   - 核心特色:
     - 思考抑制控制 (reasoning_effort): 支援 'low', 'none', 'medium', 'high' 等級
-    - 思維鏈開關 (enable_thinking): 停用時主動注入 chat_template_kwargs: {'thinking': False}
+    - 思維鏈開關 (enable_thinking): 停用時主動注入 chat_template_kwargs: {'thinking': False, 'enable_thinking': False}
     - 異常自動平滑降級 (BadRequestError Fallback): 遇到老舊或不支援 thinking 參數之後端自動剔除重試
     - 零侵入架構: 透過 Marker 的 ConfigParser / resolve_dependencies 動態注入，無需更動 Marker 核心
 維護指南:
@@ -98,10 +98,22 @@ class OptimizedOpenAIService(OpenAIService):
             parse_kwargs["reasoning_effort"] = effort
 
         # 思考開關 (thinking template kwargs)
-        # 若明確關閉思考或設定為 none/off，注入 chat_template_kwargs: {'thinking': False}
+        # 若明確關閉思考或設定為 none/off，同時注入 Qwen 專屬的 enable_thinking: False 與通用 thinking: False
         thinking_allowed = bool(self.enable_thinking) and effort not in ("none", "off", "false")
         if not thinking_allowed:
-            parse_kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": False}}
+            parse_kwargs["extra_body"] = {
+                "chat_template_kwargs": {
+                    "thinking": False,
+                    "enable_thinking": False,
+                }
+            }
+        else:
+            parse_kwargs["extra_body"] = {
+                "chat_template_kwargs": {
+                    "thinking": True,
+                    "enable_thinking": True,
+                }
+            }
 
         try:
             total_tries = max_retries + 1
