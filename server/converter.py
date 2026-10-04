@@ -16,6 +16,7 @@
 import base64
 import io
 import os
+import re
 import time
 import traceback
 from typing import Annotated, Any, Dict, List, Optional
@@ -245,6 +246,11 @@ def execute_conversion(params: CommonParams, job_id: Optional[str] = None, model
 
         text, _, images = text_from_rendered(rendered)
         metadata = rendered.metadata
+
+        # 將 Markdown 中的相對圖片標籤補上 images/ 目錄前綴，確保與 ZIP 及微服務圖片目錄結構吻合
+        if isinstance(text, str):
+            text = re.sub(r'!\[(.*?)\]\((?!https?://|images/)(.*?)\)', r'![\1](images/\2)', text)
+            text = re.sub(r'<img\s+src=["\'](?!https?://|images/)([^"\']+)["\']', r'<img src="images/\1"', text)
 
         encoded_images = {}
         for k, v in images.items():
